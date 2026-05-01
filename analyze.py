@@ -43,7 +43,7 @@ def main():
     parser.add_argument("video", help="Path to video file")
     parser.add_argument(
         "--mode",
-        choices=["auto", "hands", "feet", "face", "all", "gait", "tap"],
+        choices=["auto", "hands", "feet", "face", "all", "gait", "tap", "speech"],
         default="auto",
         help="Body part to track, or 'all' to analyze every visible part (default: auto-detect)",
     )
@@ -75,7 +75,14 @@ def main():
         from report import generate_report, save_outputs
 
         print("Tracking landmarks...")
-        if args.mode == "tap":
+        if args.mode == "speech":
+            from speech import analyze_speech, generate_speech_report, save_speech_outputs
+            with _quiet_stderr():
+                analysis = analyze_speech(str(video))
+            generate_speech_report(analysis, str(video))
+            save_speech_outputs(analysis, args.output_dir, str(video))
+
+        elif args.mode == "tap":
             from tap import analyze_taps, generate_tap_report, save_tap_outputs
             with _quiet_stderr():
                 analysis = analyze_taps(str(video))
