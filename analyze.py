@@ -53,6 +53,12 @@ def main():
         default=None,
         help="Directory for output files (default: <video_name>_tremor/ beside the video)",
     )
+    parser.add_argument(
+        "--hand",
+        choices=["left", "right"],
+        default=None,
+        help="Override hand label for --mode tap (MediaPipe sometimes mirrors left/right)",
+    )
     args = parser.parse_args()
 
     video = Path(args.video)
@@ -73,6 +79,8 @@ def main():
             from tap import analyze_taps, generate_tap_report, save_tap_outputs
             with _quiet_stderr():
                 analysis = analyze_taps(str(video))
+            if args.hand:
+                analysis.hand = args.hand.capitalize()
             generate_tap_report(analysis, str(video))
             save_tap_outputs(analysis, args.output_dir, str(video))
 
