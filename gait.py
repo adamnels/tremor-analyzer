@@ -33,7 +33,7 @@ CADENCE_HIGH_THRESH  = 130   # steps/min (festination)
 
 @dataclass
 class SegmentResult:
-    label: str             # 'toward', 'away', or 'full'
+    label: str             # 'outbound', 'return', or 'full'
     start_s: float
     end_s: float
     cadence_spm: float
@@ -52,7 +52,7 @@ class GaitAnalysis:
     turnaround_s: float
     segments: list
     time: np.ndarray
-    hip_y: np.ndarray          # detrended per segment, for plotting
+    ankle_diff: np.ndarray     # |l_ankle_y - r_ankle_y|, detrended — step rhythm signal
     left_wrist_x: np.ndarray   # detrended
     right_wrist_x: np.ndarray  # detrended
     skeleton_scale: np.ndarray
@@ -108,9 +108,18 @@ def analyze_gait(video_path: str) -> GaitAnalysis:
         seg_bounds = [(t[0], t[-1])]
         seg_labels = ["full"]
 
-    hip_y_det    = _detrend_segments(hip_y,    t, seg_bounds)
-    l_wrist_det  = _detrend_segments(l_wrist_x, t, seg_bounds)
-    r_wrist_det  = _detrend_segments(r_wrist_x, t, seg_bounds)
+    # Ankle alternation: |l_ankle_y - r_ankle_y| peaks once per step (both left and right)
+    # This works from front/back cameras where hip vertical oscillation is weak.
+    ankle_diff_raw = np.abs(l_ankle_y - r_ankle_y)
+    ankle_ok = np.isnan(ankle_diff_raw).mean() < 0.4
+
+    hip_y_det       = _detrend_segments(hip_y,          t, seg_bounds)
+    ankle_diff_det  = _detrend_segments(ankle_diff_raw,  t, seg_bounds)
+    l_wrist_det     = _detrend_segments(l_wrist_x,       t, seg_bounds)
+    r_wrist_det     = _detrend_segments(r_wrist_x,       t, seg_bounds)
+
+    # Use ankle alternation for step detection if ankles are reliably tracked
+    step_signal = ankle_diff_det if ankle_ok else hip_y_det
 
     segments = []
     for (start, end), label in zip(seg_bounds, seg_labels):
@@ -119,7 +128,7 @@ def analyze_gait(video_path: str) -> GaitAnalysis:
             continue
         seg = _analyze_segment(
             label, start, end, t[mask],
-            hip_y_det[mask], l_wrist_det[mask], r_wrist_det[mask],
+            step_signal[mask], l_wrist_det[mask], r_wrist_det[mask],
             mean_sw, fps,
         )
         if seg is not None:
@@ -137,7 +146,7 @@ def analyze_gait(video_path: str) -> GaitAnalysis:
         turnaround_s=turnaround_s,
         segments=segments,
         time=t,
-        hip_y=hip_y_det,
+        ankle_diff=ankle_diff_det,
         left_wrist_x=l_wrist_det,
         right_wrist_x=r_wrist_det,
         skeleton_scale=skeleton_scale,
@@ -211,33 +220,33 @@ def _track(video_path):
 # Analysis helpers
 # ---------------------------------------------------------------------------
 
-def _analyze_segment(label, start, end, t, hip_y, l_wrist, r_wrist, shoulder_width_px, fps):
-    if np.isnan(hip_y).mean() > 0.5:
+def _analyze_segment(label, start, end, t, step_sig, l_wrist, r_wrist, shoulder_width_px, fps):
+    if np.isnan(step_sig).mean() > 0.5:
         return None
 
     nyq = fps / 2.0
     lo  = CADENCE_BAND[0] / nyq
     hi  = min(CADENCE_BAND[1], nyq * 0.95) / nyq
-    if lo >= hi or len(hip_y) < int(fps * 2):
+    if lo >= hi or len(step_sig) < int(fps * 2):
         return None
 
     b, a = signal.butter(4, [lo, hi], btype="band")
 
     try:
-        hip_f = signal.filtfilt(b, a, np.nan_to_num(hip_y))
+        step_f = signal.filtfilt(b, a, np.nan_to_num(step_sig))
     except ValueError:
         return None
 
-    # Cadence via FFT
-    freqs = np.fft.rfftfreq(len(hip_f), 1.0 / fps)
-    power = np.abs(np.fft.rfft(hip_f)) ** 2
+    # Cadence via FFT — ankle_diff peaks at step frequency directly
+    freqs = np.fft.rfftfreq(len(step_f), 1.0 / fps)
+    power = np.abs(np.fft.rfft(step_f)) ** 2
     fmask = (freqs >= CADENCE_BAND[0]) & (freqs <= CADENCE_BAND[1])
     cadence_spm = float(freqs[fmask][np.argmax(power[fmask])]) * 60 if fmask.any() else np.nan
 
     # Step regularity via peak detection
     min_dist = max(1, int(fps / CADENCE_BAND[1]))
-    peaks, _ = signal.find_peaks(hip_f, distance=min_dist)
-    if len(peaks) >= 3:
+    peaks, _ = signal.find_peaks(step_f, distance=min_dist)
+    if len(peaks) >= 4:
         intervals = np.diff(peaks) / fps
         step_cv   = float(intervals.std() / intervals.mean() * 100)
         step_times = t[peaks]
@@ -256,7 +265,8 @@ def _analyze_segment(label, start, end, t, hip_y, l_wrist, r_wrist, shoulder_wid
             wf = signal.filtfilt(b, a, w)
         except ValueError:
             return np.nan
-        return float(np.sqrt(np.mean(wf ** 2)) * 2 * np.sqrt(2) / shoulder_width_px)
+        rms = np.sqrt(np.mean(wf ** 2))
+        return float(rms * 2 * np.sqrt(2) / shoulder_width_px)
 
     ls = swing(l_wrist)
     rs = swing(r_wrist)
@@ -308,11 +318,7 @@ def _detect_turnaround(scale, t, fps):
 
 
 def _label_segments(scale, t, turnaround_s):
-    mid_idx = np.searchsorted(t, turnaround_s)
-    window  = max(1, mid_idx // 5)
-    pre     = scale[max(0, mid_idx - window):mid_idx]
-    pre_trend = np.nanmean(np.gradient(pre[~np.isnan(pre)])) if (~np.isnan(pre)).sum() > 1 else 0
-    return ["toward", "away"] if pre_trend > 0 else ["away", "toward"]
+    return ["outbound", "return"]
 
 
 def _detrend_segments(arr, t, seg_bounds):
@@ -435,9 +441,9 @@ def _save_plot(analysis, out_dir, stem, video_path):
 
     gs = gridspec.GridSpec(3, 2, figure=fig, hspace=0.52, wspace=0.38)
 
-    # ── Row 0: Hip oscillation with step markers ─────────────────────────────
+    # ── Row 0: Ankle alternation with step markers ───────────────────────────
     ax0 = fig.add_subplot(gs[0, :])
-    ax0.plot(t, analysis.hip_y, lw=0.8, color="steelblue", alpha=0.9)
+    ax0.plot(t, analysis.ankle_diff, lw=0.8, color="steelblue", alpha=0.9)
     ax0.axhline(0, color="gray", lw=0.5, ls="--")
     for seg in analysis.segments:
         for st in seg.step_times:
@@ -447,13 +453,13 @@ def _save_plot(analysis, out_dir, stem, video_path):
                     label=f"Turnaround {analysis.turnaround_s:.1f}s")
         ax0.legend(fontsize=8)
     ax0.set_xlabel("Time (s)")
-    ax0.set_ylabel("Hip vertical\n(detrended, px)")
-    ax0.set_title("Hip Oscillation — Step Rhythm  (green = detected steps)")
+    ax0.set_ylabel("Ankle alternation\n|L−R| detrended (px)")
+    ax0.set_title("Ankle Alternation — Step Rhythm  (green = detected steps)")
     ax0.set_xlim(t[0], t[-1])
 
     # ── Row 1 left: Cadence spectrum ─────────────────────────────────────────
     ax1 = fig.add_subplot(gs[1, 0])
-    hip_clean = np.nan_to_num(analysis.hip_y)
+    hip_clean = np.nan_to_num(analysis.ankle_diff)
     freqs = np.fft.rfftfreq(len(hip_clean), 1.0 / analysis.fps)
     power = np.abs(np.fft.rfft(hip_clean)) ** 2
     fmask = (freqs >= 0.3) & (freqs <= 3.5)
