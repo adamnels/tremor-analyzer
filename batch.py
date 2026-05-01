@@ -179,10 +179,13 @@ def _parse_path(path: Path, root: Path) -> VideoRecord:
                 path=path,
             )
 
-    # Fall back: parent directory = patient ID
+    # Fall back: top-level subdirectory = patient ID
     patient_id = parts[0] if len(parts) > 1 else stem
-    dt   = _date_from_text(stem) or _date_from_text(str(path.parent.name))
-    mode = _mode_from_text(stem) or "auto"
+
+    # Search the full relative path for a date (covers dates in any subdirectory)
+    full_rel = str(path.relative_to(root))
+    dt   = _date_from_text(full_rel)
+    mode = _mode_from_text(stem) or _mode_from_text(full_rel) or "auto"
 
     if dt is None:
         dt = datetime.fromtimestamp(path.stat().st_mtime).date()
