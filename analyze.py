@@ -73,10 +73,17 @@ def main():
             with _quiet_stderr():
                 trackings = track_video_all(str(video))
             print("Analyzing tremor...")
+            any_succeeded = False
             for tracking in trackings:
-                analysis = analyze_tremor(tracking)
-                generate_report(analysis, str(video))
-                save_outputs(analysis, args.output_dir, str(video), stem_prefix=tracking.mode)
+                try:
+                    analysis = analyze_tremor(tracking)
+                    generate_report(analysis, str(video))
+                    save_outputs(analysis, args.output_dir, str(video), stem_prefix=tracking.mode)
+                    any_succeeded = True
+                except ValueError as e:
+                    print(f"  Skipping {tracking.mode}: {e}")
+            if not any_succeeded:
+                raise ValueError("No body parts yielded usable tremor data.")
         else:
             with _quiet_stderr():
                 tracking = track_video(str(video), args.mode)

@@ -135,8 +135,9 @@ def track_video_all(video_path: str, min_detection_rate: float = 0.2) -> list:
                 hand_refs.append(np.nan)
 
             if pr.pose_landmarks:
-                foot_detected += 1
                 lms = pr.pose_landmarks.landmark
+                if lms[27].visibility > 0.3 or lms[28].visibility > 0.3:
+                    foot_detected += 1
                 for name, idx in FOOT_LANDMARKS.items():
                     foot_data[name].append(
                         [lms[idx].x * w, lms[idx].y * h] if lms[idx].visibility > 0.3
