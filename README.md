@@ -38,6 +38,7 @@ python analyze.py VIDEO [--mode MODE] [--output-dir DIR]
 | `face` | Track nose, chin, and eye landmarks for facial/jaw tremor |
 | `all` | Single pass running all three tremor models simultaneously; analyzes every body part detected in ≥20% of frames |
 | `gait` | Full-body pose tracking for walking analysis; auto-detects turnaround |
+| `tap` | Finger tapping test — tracks thumb-to-index distance for bradykinesia and decrement analysis |
 
 ### Examples
 
@@ -54,6 +55,10 @@ python analyze.py recording.mp4 --mode all
 
 # Gait — patient walks toward/away from camera
 python analyze.py walk.mp4 --mode gait
+
+# Finger tapping test (camera pointed at hand, patient taps 10 s per hand)
+python analyze.py tap_left.mp4 --mode tap
+python analyze.py tap_right.mp4 --mode tap
 
 # Save outputs to a specific directory
 python analyze.py recording.mp4 --mode gait --output-dir ./results/patient_01
@@ -147,6 +152,42 @@ The tool expects a video of the patient walking toward and/or away from the came
 **Turnaround detection:** The tool uses the apparent size of the pose skeleton (shoulder-to-ankle pixel distance) to detect when the patient reverses direction. When found, the video is split into an **outbound** segment (first half) and a **return** segment (second half), analyzed independently. Each gets its own cadence and arm swing measurements in the report. If no turnaround is detected, a single **full** segment is reported.
 
 **Limitation — forward lean:** Stooped posture (camptocormia) is a recognized PD feature but cannot be reliably measured from a front- or back-facing camera. A lateral (side-view) recording would be required.
+
+---
+
+### Finger Tapping (`--mode tap`)
+
+The finger tapping test corresponds to UPDRS-III item 23. The patient taps their index finger to their thumb as fast and as wide as possible for 10 seconds. Test each hand separately with the camera pointed at the hand filling most of the frame.
+
+**What the tool measures:**
+
+| Metric | Description |
+|---|---|
+| **Tap rate** | Mean taps per second across the trial. Normal: ~4–5 Hz. |
+| **Amplitude** | Mean thumb-to-index opening per tap, normalized to hand width. |
+| **Rhythm CV** | Coefficient of variation of inter-tap intervals — consistency of the tapping beat. |
+| **Arrests** | Pauses exceeding 2× the median inter-tap interval. Each arrest is a UPDRS scoring marker. |
+| **Rate decrement** | % slowing from the first third to the last third of the trial. |
+| **Amplitude decrement** | % reduction in tap opening from the first third to the last third. Amplitude decrement is the most PD-specific feature of this test. |
+
+**Flags raised:**
+
+| Flag | Threshold | Clinical context |
+|---|---|---|
+| `SLOW TAP RATE` | < 3.5 Hz | Bradykinesia. Normal is ~4–5 Hz. Values below 3 Hz indicate significant impairment. |
+| `AMPLITUDE DECREMENT` | > 25% reduction | The hallmark of PD bradykinesia on this test. Essential tremor does not typically show decrement. The progressive fatigue reflects dopaminergic basal ganglia dysfunction. |
+| `RATE DECREMENT` | > 25% slowing | Accompanies amplitude decrement in moderate-severe PD. |
+| `ARRESTS DETECTED` | Any pause > 2× median | Brief complete arrests in otherwise continuous tapping are a UPDRS item. Count corresponds roughly to UPDRS severity grade. |
+| `IRREGULAR TAPPING` | Rhythm CV > 20% | Erratic inter-tap timing, distinct from simple slowness. |
+
+**UPDRS-III item 23 approximate correspondence:**
+- Grade 0: normal rate and amplitude, no decrement
+- Grade 1: mild slowing or amplitude reduction, 1–2 arrests
+- Grade 2: moderate impairment, 3–5 arrests
+- Grade 3: severely impaired, frequent arrests or very slow/small
+- Grade 4: cannot perform task
+
+The tool does not produce a UPDRS grade directly, but the flag pattern maps onto this scale.
 
 ---
 
