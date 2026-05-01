@@ -130,8 +130,8 @@ The tool expects a video of the patient walking toward and/or away from the came
 
 | Metric | Description |
 |---|---|
-| **Cadence** | Steps per minute, derived from the frequency of hip vertical oscillation |
-| **Step CV** | Coefficient of variation of step intervals (%) — a measure of gait rhythm regularity |
+| **Cadence** | Steps per minute, derived from ankle alternation frequency (see Methodology) |
+| **Step CV** | Coefficient of variation of step intervals: std ÷ mean × 100%. Measures rhythm consistency — 0% would be perfectly metronomic. Healthy adults: 1–3%. Elevated values mean steps are irregularly timed. |
 | **Arm swing (L/R)** | RMS amplitude of lateral wrist oscillation, normalized to shoulder width |
 | **Arm asymmetry** | Ratio of larger to smaller arm swing (max/min). A ratio of 1.0 means perfectly symmetric. |
 
@@ -141,10 +141,10 @@ The tool expects a video of the patient walking toward and/or away from the came
 |---|---|---|
 | `ARM SWING ASYMMETRY` | Ratio > 1.5× | Asymmetric arm swing is one of the earliest and most specific signs of PD, often preceding other motor symptoms. It reflects the asymmetric dopaminergic deficit typical of early PD. |
 | `REDUCED ARM SWING` | Normalized amplitude < 0.06 | Bilaterally reduced arm swing (hypomimia of gait) is characteristic of more advanced or bilateral PD. Also seen in depression and certain medications. |
-| `IRREGULAR GAIT` | Step CV > 4% | Increased step-to-step variability is associated with fall risk in PD and correlates with disease severity. Normal healthy adults have step CV < 2–3%. |
+| `IRREGULAR GAIT` | Step CV > 4% | Increased step-to-step variability is associated with fall risk in PD and correlates with disease severity. Normal healthy adults: CV < 3%. Moderate PD: 4–10%. Values above 10% suggest significant gait pathology or measurement noise (check detection rate and ankle visibility). |
 | `HIGH CADENCE` | > 130 steps/min | Elevated cadence combined with visually short steps may indicate festination. Normal comfortable walking is typically 100–120 steps/min. |
 
-**Turnaround detection:** The tool uses the apparent size of the pose skeleton (shoulder-to-ankle pixel distance) to detect when the patient reverses direction. When found, the video is split into two segments (e.g., "toward" and "away") analyzed independently. Each segment gets its own cadence and arm swing measurements in the report.
+**Turnaround detection:** The tool uses the apparent size of the pose skeleton (shoulder-to-ankle pixel distance) to detect when the patient reverses direction. When found, the video is split into an **outbound** segment (first half) and a **return** segment (second half), analyzed independently. Each gets its own cadence and arm swing measurements in the report. If no turnaround is detected, a single **full** segment is reported.
 
 **Limitation — forward lean:** Stooped posture (camptocormia) is a recognized PD feature but cannot be reliably measured from a front- or back-facing camera. A lateral (side-view) recording would be required.
 
@@ -187,15 +187,15 @@ Frames where the body part is not detected are recorded as NaN and filled by lin
 
 ### Gait Signal Processing
 
-1. **Detrending** — the hip y-position and wrist x-positions are linearly detrended within each walking segment. This removes the systematic change in apparent position as the patient approaches or recedes from the camera.
+1. **Detrending** — wrist x-positions and the ankle alternation signal are linearly detrended within each walking segment. This removes the systematic drift in apparent position as the patient approaches or recedes from the camera.
 
-2. **Cadence** — 4th-order Butterworth bandpass filter (0.5–3.0 Hz = 30–180 steps/min) applied to detrended hip y-position. Dominant frequency from FFT, converted to steps/min (Hz × 60). The hip oscillates vertically once per step.
+2. **Cadence** — the primary step signal is the **ankle alternation**: `|left_ankle_y − right_ankle_y|`. As each foot lifts in turn, this value peaks — once per step — regardless of camera angle. This is more reliable than hip vertical oscillation for front/back videos, where the hip moves mainly in depth (invisible to a 2D camera) rather than vertically in the image. A 4th-order Butterworth bandpass filter (0.5–3.0 Hz = 30–180 steps/min) is applied, then the dominant FFT frequency is converted to steps/min. If ankle data is insufficient (>40% missing frames), the algorithm falls back to hip vertical oscillation.
 
-3. **Step detection** — `scipy.signal.find_peaks` on the filtered hip signal with minimum inter-peak distance corresponding to the upper cadence limit. Inter-peak intervals give step regularity (CV).
+3. **Step detection** — `scipy.signal.find_peaks` on the filtered ankle alternation signal, with minimum inter-peak distance set by the upper cadence limit. At least 4 peaks are required to compute step CV. Inter-peak intervals give step regularity.
 
-4. **Arm swing** — lateral (x-axis) wrist position, detrended and bandpass filtered at the same cadence band. RMS amplitude × 2√2 gives a peak-to-peak estimate. Normalized by the median shoulder width (inter-shoulder pixel distance) to cancel out the effect of camera distance — as the patient gets closer, both arm swing pixels and shoulder width pixels scale proportionally.
+4. **Arm swing** — lateral (x-axis) wrist position, detrended and bandpass filtered at the same cadence band. RMS amplitude × 2√2 gives a peak-to-peak estimate. Normalized by the median shoulder width (inter-shoulder pixel distance) to cancel out the effect of camera distance — as the patient gets closer, both arm swing pixels and shoulder width pixels scale proportionally. Note: absolute arm swing values may be inflated by overall body sway; the **asymmetry ratio** (left/right) is the more reliable metric.
 
-5. **Turnaround detection** — the shoulder-to-ankle pixel distance is a proxy for how large the person appears in frame. Smoothed with a 1.5-second moving average, its derivative sign is checked in the first and last thirds of the video. A sign reversal in the middle 60% of the video marks the turnaround. Direction labels ("toward"/"away") are assigned by whether the skeleton was growing or shrinking before the turnaround.
+5. **Turnaround detection** — the shoulder-to-ankle pixel distance is a proxy for how large the person appears in frame. Smoothed with a 1.5-second moving average, its derivative sign is checked in the first and last thirds of the video. A sign reversal in the middle 60% marks the turnaround. Segments are labeled **outbound** (first half) and **return** (second half).
 
 ---
 
