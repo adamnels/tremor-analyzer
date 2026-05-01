@@ -43,7 +43,7 @@ def main():
     parser.add_argument("video", help="Path to video file")
     parser.add_argument(
         "--mode",
-        choices=["auto", "hands", "feet", "face", "all"],
+        choices=["auto", "hands", "feet", "face", "all", "gait"],
         default="auto",
         help="Body part to track, or 'all' to analyze every visible part (default: auto-detect)",
     )
@@ -69,7 +69,14 @@ def main():
         from report import generate_report, save_outputs
 
         print("Tracking landmarks...")
-        if args.mode == "all":
+        if args.mode == "gait":
+            from gait import analyze_gait, generate_gait_report, save_gait_outputs
+            with _quiet_stderr():
+                analysis = analyze_gait(str(video))
+            generate_gait_report(analysis, str(video))
+            save_gait_outputs(analysis, args.output_dir, str(video))
+
+        elif args.mode == "all":
             with _quiet_stderr():
                 trackings = track_video_all(str(video))
             print("Analyzing tremor...")
