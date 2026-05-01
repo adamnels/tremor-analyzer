@@ -57,8 +57,9 @@ def generate_report(analysis, video_path: str):
     print()
 
 
-def save_outputs(analysis, output_dir, video_path: str):
+def save_outputs(analysis, output_dir, video_path: str, stem_prefix: str = ""):
     stem = Path(video_path).stem
+    file_stem = f"{stem_prefix}_{stem}" if stem_prefix else stem
     out = (
         Path(output_dir)
         if output_dir
@@ -66,8 +67,8 @@ def save_outputs(analysis, output_dir, video_path: str):
     )
     out.mkdir(parents=True, exist_ok=True)
 
-    plot_path = _save_plot(analysis, out, stem, video_path)
-    json_path = _save_json(analysis, out, stem, video_path)
+    plot_path = _save_plot(analysis, out, file_stem, video_path)
+    json_path = _save_json(analysis, out, file_stem, video_path)
 
     print(f"  Plot : {plot_path}")
     print(f"  JSON : {json_path}")

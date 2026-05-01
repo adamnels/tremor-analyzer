@@ -71,6 +71,130 @@ def track_video(video_path: str, mode: str = "auto") -> TrackingResult:
         raise ValueError(f"Unknown mode: {mode}")
 
 
+def track_video_all(video_path: str, min_detection_rate: float = 0.2) -> list:
+    """Single-pass through the video running all three models simultaneously.
+    Returns a TrackingResult for each body part detected above min_detection_rate."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video: {video_path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+
+    if fps < 15:
+        print(f"  Warning: low frame rate ({fps:.1f} fps) — may miss fast tremor components")
+    if total / fps < 3:
+        print(f"  Warning: short video ({total/fps:.1f}s) — recommend ≥5 s for reliable analysis")
+
+    print(f"  Mode: all  |  {fps:.1f} fps  |  ~{total/fps:.0f}s  ({total} frames)")
+
+    hand_data = {k: [] for k in HAND_LANDMARKS}
+    hand_refs, hand_detected = [], 0
+
+    foot_data = {k: [] for k in FOOT_LANDMARKS}
+    foot_refs, foot_detected = [], 0
+
+    face_data = {k: [] for k in FACE_LANDMARKS}
+    face_refs, face_detected = [], 0
+
+    n = 0
+    cap = cv2.VideoCapture(video_path)
+
+    with (
+        mp_hands.Hands(static_image_mode=False, max_num_hands=2,
+                       min_detection_confidence=0.5, min_tracking_confidence=0.5) as hands,
+        mp_pose.Pose(static_image_mode=False,
+                     min_detection_confidence=0.5, min_tracking_confidence=0.5) as pose,
+        mp_face.FaceMesh(static_image_mode=False, max_num_faces=1, refine_landmarks=True,
+                         min_detection_confidence=0.5, min_tracking_confidence=0.5) as face,
+    ):
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            n += 1
+            h, w = frame.shape[:2]
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            hr = hands.process(rgb)
+            pr = pose.process(rgb)
+            fr = face.process(rgb)
+
+            if hr.multi_hand_landmarks:
+                hand_detected += 1
+                lms = hr.multi_hand_landmarks[0].landmark
+                for name, idx in HAND_LANDMARKS.items():
+                    hand_data[name].append([lms[idx].x * w, lms[idx].y * h])
+                a = np.array([lms[HAND_REF[0]].x * w, lms[HAND_REF[0]].y * h])
+                b = np.array([lms[HAND_REF[1]].x * w, lms[HAND_REF[1]].y * h])
+                hand_refs.append(np.linalg.norm(b - a))
+            else:
+                for name in HAND_LANDMARKS:
+                    hand_data[name].append([np.nan, np.nan])
+                hand_refs.append(np.nan)
+
+            if pr.pose_landmarks:
+                foot_detected += 1
+                lms = pr.pose_landmarks.landmark
+                for name, idx in FOOT_LANDMARKS.items():
+                    foot_data[name].append(
+                        [lms[idx].x * w, lms[idx].y * h] if lms[idx].visibility > 0.3
+                        else [np.nan, np.nan]
+                    )
+                a = np.array([lms[FOOT_REF[0]].x * w, lms[FOOT_REF[0]].y * h])
+                b = np.array([lms[FOOT_REF[1]].x * w, lms[FOOT_REF[1]].y * h])
+                foot_refs.append(np.linalg.norm(b - a))
+            else:
+                for name in FOOT_LANDMARKS:
+                    foot_data[name].append([np.nan, np.nan])
+                foot_refs.append(np.nan)
+
+            if fr.multi_face_landmarks:
+                face_detected += 1
+                lms = fr.multi_face_landmarks[0].landmark
+                for name, idx in FACE_LANDMARKS.items():
+                    face_data[name].append([lms[idx].x * w, lms[idx].y * h])
+                a = np.array([lms[FACE_REF[0]].x * w, lms[FACE_REF[0]].y * h])
+                b = np.array([lms[FACE_REF[1]].x * w, lms[FACE_REF[1]].y * h])
+                face_refs.append(np.linalg.norm(b - a))
+            else:
+                for name in FACE_LANDMARKS:
+                    face_data[name].append([np.nan, np.nan])
+                face_refs.append(np.nan)
+
+            if n % max(1, int(fps)) == 0:
+                print(f"\r  Tracking... {n/fps:.0f}s", end="", flush=True)
+
+    cap.release()
+
+    parts = [
+        ("hands", hand_data, HAND_LANDMARKS, hand_refs, hand_detected),
+        ("feet",  foot_data, FOOT_LANDMARKS, foot_refs, foot_detected),
+        ("face",  face_data, FACE_LANDMARKS, face_refs, face_detected),
+    ]
+
+    results = []
+    found = []
+    for mode, data, _, refs, detected in parts:
+        rate = detected / n if n > 0 else 0.0
+        if rate >= min_detection_rate:
+            found.append(f"{mode} ({rate*100:.0f}%)")
+            results.append(TrackingResult(
+                mode=mode, fps=fps, frame_count=n,
+                landmarks={k: np.array(v) for k, v in data.items()},
+                reference_size=np.array(refs),
+                detection_rate=rate,
+            ))
+
+    print(f"\r  Detected: {', '.join(found) if found else 'nothing'}")
+
+    if not results:
+        raise ValueError("No body parts detected. Try better lighting or a closer frame.")
+
+    return results
+
+
 def _detect_mode(video_path: str, total_frames: int) -> str:
     cap = cv2.VideoCapture(video_path)
     indices = set(np.linspace(0, total_frames - 1, min(10, total_frames), dtype=int))

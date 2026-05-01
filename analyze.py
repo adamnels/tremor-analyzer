@@ -43,9 +43,9 @@ def main():
     parser.add_argument("video", help="Path to video file")
     parser.add_argument(
         "--mode",
-        choices=["auto", "hands", "feet", "face"],
+        choices=["auto", "hands", "feet", "face", "all"],
         default="auto",
-        help="Body part to track (default: auto-detect)",
+        help="Body part to track, or 'all' to analyze every visible part (default: auto-detect)",
     )
     parser.add_argument(
         "--output-dir",
@@ -64,19 +64,26 @@ def main():
     print(f"Video : {video.name}")
 
     try:
-        from tracker import track_video
+        from tracker import track_video, track_video_all
         from analysis import analyze_tremor
         from report import generate_report, save_outputs
 
         print("Tracking landmarks...")
-        with _quiet_stderr():
-            tracking = track_video(str(video), args.mode)
-
-        print("Analyzing tremor...")
-        analysis = analyze_tremor(tracking)
-
-        generate_report(analysis, str(video))
-        save_outputs(analysis, args.output_dir, str(video))
+        if args.mode == "all":
+            with _quiet_stderr():
+                trackings = track_video_all(str(video))
+            print("Analyzing tremor...")
+            for tracking in trackings:
+                analysis = analyze_tremor(tracking)
+                generate_report(analysis, str(video))
+                save_outputs(analysis, args.output_dir, str(video), stem_prefix=tracking.mode)
+        else:
+            with _quiet_stderr():
+                tracking = track_video(str(video), args.mode)
+            print("Analyzing tremor...")
+            analysis = analyze_tremor(tracking)
+            generate_report(analysis, str(video))
+            save_outputs(analysis, args.output_dir, str(video))
 
     except ValueError as e:
         print(f"\nError: {e}", file=sys.stderr)
