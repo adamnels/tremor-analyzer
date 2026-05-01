@@ -591,6 +591,12 @@ def main():
         print(f"Error: not found: {video_dir}", file=sys.stderr)
         sys.exit(1)
 
+    if manifest and not manifest.exists():
+        print(f"Error: manifest not found: {manifest}", file=sys.stderr)
+        print(f"  Generate one first with:", file=sys.stderr)
+        print(f"    python make_manifest.py {video_dir}", file=sys.stderr)
+        sys.exit(1)
+
     # ── Discover ──────────────────────────────────────────────────────────────
     print(f"Scanning {video_dir} ...\n")
     records = scan(video_dir, manifest)
