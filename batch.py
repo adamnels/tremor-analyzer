@@ -251,10 +251,20 @@ def _quiet():
         os.close(old)
 
 
-def run_analysis(record: VideoRecord, patient_dir: Path, resume: bool) -> SessionResult:
+def _video_duration(path: Path) -> float:
+    import cv2
+    cap = cv2.VideoCapture(str(path))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    cap.release()
+    return frames / fps if fps > 0 else 0.0
+
+
+def run_analysis(record: VideoRecord, patient_dir: Path, resume: bool,
+                 max_seconds: float = None) -> SessionResult:
     date_str    = record.date.strftime("%Y%m%d")
     session_dir = patient_dir / f"{date_str}_{record.session_label}_{record.path.stem}"
-    mode        = record.mode
+    mode        = record.mode.strip() or "auto"
 
     suffix_map = {
         "gait": "_gait.json", "tap": "_tap.json", "speech": "_speech.json",
@@ -265,6 +275,13 @@ def run_analysis(record: VideoRecord, patient_dir: Path, resume: bool) -> Sessio
     if resume and json_path.exists():
         print(f"    [skip] already analysed")
         return SessionResult(record, session_dir, _extract(json_path), success=True)
+
+    if max_seconds is not None:
+        dur = _video_duration(record.path)
+        if dur > max_seconds:
+            print(f"    [skip] {dur:.0f}s > --max-seconds {max_seconds:.0f}s")
+            return SessionResult(record, session_dir, {}, success=False,
+                                 error=f"video too long ({dur:.0f}s)")
 
     session_dir.mkdir(parents=True, exist_ok=True)
 
@@ -581,6 +598,9 @@ def main():
                         help="Skip sessions whose JSON output already exists")
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview what would be processed without running")
+    parser.add_argument("--max-seconds", type=float, default=None,
+                        help="Skip videos longer than this many seconds (useful for "
+                             "excluding full Zoom sessions from tap/gait analysis)")
     args = parser.parse_args()
 
     video_dir  = Path(args.video_dir)
@@ -638,7 +658,7 @@ def main():
         results = []
         for rec in labeled:
             print(f"\n  [{rec.session_label}]  {rec.path.name}  (mode: {rec.mode})")
-            sr = run_analysis(rec, patient_dir, args.resume)
+            sr = run_analysis(rec, patient_dir, args.resume, args.max_seconds)
             results.append(sr)
             if sr.success and sr.metrics:
                 for k, v in sr.metrics.items():
