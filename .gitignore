@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Video files and patient data
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.m4v
+
+# Output directories
+*_tremor/
+
+# macOS
+.DS_Store

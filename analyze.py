@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""
+Tremor Analyzer — frequency and amplitude from video for Parkinson's assessment.
+
+Usage:
+  python analyze.py patient_hand.mp4
+  python analyze.py recording.mp4 --mode feet
+  python analyze.py clip.mp4 --mode face --output-dir ./results
+"""
+
+import contextlib
+import os
+import sys
+
+# Belt-and-suspenders: env vars first, then fd-level redirect during tracking
+os.environ["GLOG_minloglevel"] = "3"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import argparse
+from pathlib import Path
+
+
+@contextlib.contextmanager
+def _quiet_stderr():
+    """Redirect C++ stderr at the file-descriptor level to suppress MediaPipe noise."""
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    old = os.dup(2)
+    os.dup2(devnull, 2)
+    os.close(devnull)
+    try:
+        yield
+    finally:
+        os.dup2(old, 2)
+        os.close(old)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Analyze tremor frequency and amplitude from a recorded video.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("video", help="Path to video file")
+    parser.add_argument(
+        "--mode",
+        choices=["auto", "hands", "feet", "face"],
+        default="auto",
+        help="Body part to track (default: auto-detect)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        metavar="DIR",
+        default=None,
+        help="Directory for output files (default: <video_name>_tremor/ beside the video)",
+    )
+    args = parser.parse_args()
+
+    video = Path(args.video)
+    if not video.exists():
+        print(f"Error: file not found: {video}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"\nTremor Analyzer")
+    print(f"Video : {video.name}")
+
+    try:
+        from tracker import track_video
+        from analysis import analyze_tremor
+        from report import generate_report, save_outputs
+
+        print("Tracking landmarks...")
+        with _quiet_stderr():
+            tracking = track_video(str(video), args.mode)
+
+        print("Analyzing tremor...")
+        analysis = analyze_tremor(tracking)
+
+        generate_report(analysis, str(video))
+        save_outputs(analysis, args.output_dir, str(video))
+
+    except ValueError as e:
+        print(f"\nError: {e}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nCancelled.", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
