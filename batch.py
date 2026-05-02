@@ -195,7 +195,7 @@ def _parse_path(path: Path, root: Path) -> VideoRecord:
 
 
 def _parse_date(s: str):
-    for fmt in ("%Y-%m-%d", "%Y%m%d", "%m/%d/%Y"):
+    for fmt in ("%Y-%m-%d", "%Y%m%d", "%m/%d/%Y", "%m/%d/%y"):
         try:
             return datetime.strptime(s.strip(), fmt).date()
         except ValueError:
