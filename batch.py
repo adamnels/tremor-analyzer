@@ -269,7 +269,8 @@ def run_analysis(record: VideoRecord, patient_dir: Path, resume: bool,
     mode        = record.mode.strip() or "auto"
 
     suffix_map = {
-        "gait": "_gait.json", "tap": "_tap.json", "speech": "_speech.json",
+        "gait": "_gait.json", "tap": "_tap.json",
+        "speech": "_speech.json", "flow": "_flow.json",
     }
     json_suffix = suffix_map.get(mode, "_tremor.json")
     json_path   = session_dir / (record.path.stem + json_suffix)
