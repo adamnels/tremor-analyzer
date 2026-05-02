@@ -10,6 +10,10 @@ mp_face = mp.solutions.face_mesh
 # Landmark indices and reference pairs (for spatial normalization)
 HAND_LANDMARKS = {
     "wrist": 0,
+    "index_mcp": 5,
+    "middle_mcp": 9,
+    "ring_mcp": 13,
+    "pinky_mcp": 17,
     "index_tip": 8,
     "middle_tip": 12,
     "ring_tip": 16,
