@@ -53,7 +53,11 @@ def analyze_tremor(tracking) -> TremorAnalysis:
             "Insufficient tracking data — video may be too short or body part not visible."
         )
 
-    primary = max(results, key=lambda r: r.amplitude)
+    # Prefer the landmark with the most PD-band power (most tremor-like signal).
+    # Fall back to amplitude if nothing has meaningful PD-band power.
+    in_pd = [r for r in results if r.in_pd_range]
+    primary = max(in_pd, key=lambda r: r.tremor_index) if in_pd \
+              else max(results, key=lambda r: r.tremor_index)
     flags = _generate_flags(results, primary, tracking.fps, tracking.detection_rate)
 
     return TremorAnalysis(
