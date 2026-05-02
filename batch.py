@@ -402,6 +402,15 @@ def _nanmean(vals):
 # ---------------------------------------------------------------------------
 
 def longitudinal(sessions: list, patient_dir: Path, patient_id: str):
+    # Check for mixed modes — metrics from different modes are not comparable
+    modes = [s.record.mode for s in sessions]
+    unique_modes = list(dict.fromkeys(modes))  # ordered, deduped
+    mixed_modes = len(unique_modes) > 1
+    if mixed_modes:
+        print(f"  !! Mixed modes detected: {unique_modes}")
+        print(f"     Amplitude and other absolute metrics are NOT comparable across modes.")
+        print(f"     Longitudinal plot generated but treat cross-mode comparisons with caution.")
+
     all_keys = []
     for s in sessions:
         for k in s.metrics:
@@ -425,18 +434,24 @@ def longitudinal(sessions: list, patient_dir: Path, patient_id: str):
         else:
             changes[k] = None
 
-    _plot_longitudinal(all_keys, series, labels, changes, patient_dir, patient_id)
-    _save_longitudinal_json(sessions, changes, all_keys, patient_dir, patient_id)
+    _plot_longitudinal(all_keys, series, labels, changes, patient_dir,
+                       patient_id, mixed_modes, unique_modes)
+    _save_longitudinal_json(sessions, changes, all_keys, patient_dir,
+                            patient_id, mixed_modes, unique_modes)
 
 
-def _plot_longitudinal(all_keys, series, labels, changes, patient_dir, patient_id):
+def _plot_longitudinal(all_keys, series, labels, changes, patient_dir,
+                       patient_id, mixed_modes=False, unique_modes=None):
     n  = len(all_keys)
     nc = 2
     nr = (n + 1) // nc
 
     fig, axes = plt.subplots(nr, nc, figsize=(13, max(4, nr * 3.2)))
-    fig.suptitle(f"Longitudinal Assessment — Patient {patient_id}",
-                 fontsize=13, fontweight="bold")
+    title = f"Longitudinal Assessment — Patient {patient_id}"
+    if mixed_modes:
+        title += f"\n⚠ Mixed modes ({', '.join(unique_modes)}) — absolute metrics not comparable across modes"
+    fig.suptitle(title, fontsize=12 if mixed_modes else 13, fontweight="bold",
+                 color="crimson" if mixed_modes else "black")
     axes_flat = np.array(axes).flatten()
 
     for i, key in enumerate(all_keys):
@@ -491,7 +506,8 @@ def _plot_longitudinal(all_keys, series, labels, changes, patient_dir, patient_i
     print(f"    Longitudinal plot → {out.name}")
 
 
-def _save_longitudinal_json(sessions, changes, all_keys, patient_dir, patient_id):
+def _save_longitudinal_json(sessions, changes, all_keys, patient_dir,
+                            patient_id, mixed_modes=False, unique_modes=None):
     baseline = sessions[0].metrics
 
     # Classify improvement
@@ -512,8 +528,12 @@ def _save_longitudinal_json(sessions, changes, all_keys, patient_dir, patient_id
             stable.append(k)
 
     summary = {
-        "patient_id": patient_id,
-        "n_sessions":  len(sessions),
+        "patient_id":   patient_id,
+        "n_sessions":   len(sessions),
+        "mixed_modes":  mixed_modes,
+        "modes_used":   unique_modes or [],
+        "warning":      "Mixed measurement modes — absolute metric comparisons unreliable"
+                        if mixed_modes else None,
         "sessions": [
             {
                 "label":   s.record.session_label,
