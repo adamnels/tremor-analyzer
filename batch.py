@@ -109,6 +109,7 @@ class VideoRecord:
     mode: str
     path: Path
     session_label: str = ""
+    roi: str = ""          # optional 'x,y,w,h' for --mode flow
 
 
 @dataclass
@@ -146,6 +147,7 @@ def _from_manifest(manifest_path: Path) -> list:
                 date=dt,
                 mode=row["mode"].strip().lower(),
                 path=path,
+                roi=row.get("roi", "").strip(),
             ))
     return records
 
@@ -310,6 +312,14 @@ def run_analysis(record: VideoRecord, patient_dir: Path, resume: bool,
             generate_tap_report(result, str(record.path))
             save_tap_outputs(result, str(session_dir), str(record.path))
 
+        elif mode == "flow":
+            from flow import analyze_flow, generate_flow_report, save_flow_outputs, parse_roi
+            roi_str = getattr(record, "roi", None)
+            roi = parse_roi(roi_str) if roi_str else None
+            result = analyze_flow(str(record.path), roi=roi)
+            generate_flow_report(result, str(record.path))
+            save_flow_outputs(result, str(session_dir), str(record.path))
+
         elif mode == "speech":
             from speech import (analyze_speech, generate_speech_report,
                                 save_speech_outputs)
@@ -362,6 +372,11 @@ def _extract(json_path: Path) -> dict:
         m["tap_arrests"]        = data.get("arrest_count")
         m["tap_rate_decrement"] = (data.get("rate_by_third")      or {}).get("decrement_pct")
         m["tap_amp_decrement"]  = (data.get("amplitude_by_third") or {}).get("decrement_pct")
+
+    elif mode == "flow":
+        m["tremor_amplitude"]  = data.get("amplitude")
+        m["tremor_freq_hz"]    = data.get("dominant_freq_hz")
+        m["pd_band_power_pct"] = data.get("pd_band_power_pct")
 
     elif mode == "speech":
         v = data.get("voice") or {}

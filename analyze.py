@@ -43,7 +43,7 @@ def main():
     parser.add_argument("video", help="Path to video file")
     parser.add_argument(
         "--mode",
-        choices=["auto", "hands", "feet", "face", "all", "gait", "tap", "speech"],
+        choices=["auto", "hands", "feet", "face", "all", "gait", "tap", "speech", "flow"],
         default="auto",
         help="Body part to track, or 'all' to analyze every visible part (default: auto-detect)",
     )
@@ -58,6 +58,18 @@ def main():
         choices=["left", "right"],
         default=None,
         help="Override hand label for --mode tap (MediaPipe sometimes mirrors left/right)",
+    )
+    parser.add_argument(
+        "--roi",
+        default=None,
+        metavar="x,y,w,h",
+        help="Region of interest for --mode flow. Omit for interactive selection.",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        metavar="CSV",
+        help="Manifest path — if provided with --mode flow, offers to save ROI back to it.",
     )
     args = parser.parse_args()
 
@@ -75,7 +87,14 @@ def main():
         from report import generate_report, save_outputs
 
         print("Tracking landmarks...")
-        if args.mode == "speech":
+        if args.mode == "flow":
+            from flow import analyze_flow, generate_flow_report, save_flow_outputs, parse_roi
+            roi = parse_roi(args.roi) if args.roi else None
+            analysis = analyze_flow(str(video), roi=roi, manifest_path=args.manifest)
+            generate_flow_report(analysis, str(video))
+            save_flow_outputs(analysis, args.output_dir, str(video))
+
+        elif args.mode == "speech":
             from speech import analyze_speech, generate_speech_report, save_speech_outputs
             with _quiet_stderr():
                 analysis = analyze_speech(str(video))
