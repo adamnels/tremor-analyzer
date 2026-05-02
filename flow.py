@@ -130,33 +130,43 @@ def _select_roi(video_path: str) -> tuple:
 
 
 def _offer_save_roi(manifest_path: str, video_path: str, roi: tuple):
-    resp = input(f"  Save ROI to manifest for future reruns? [y/N] ").strip().lower()
+    abs_manifest = Path(manifest_path).resolve()
+    resp = input(f"  Save ROI {roi} to {abs_manifest}? [y/N] ").strip().lower()
     if resp == "y":
         save_roi_to_manifest(manifest_path, video_path, roi)
-        print(f"  ROI saved to {manifest_path}")
 
 
 def save_roi_to_manifest(manifest_path: str, video_path: str, roi: tuple):
     """Write roi coordinates into the manifest CSV for the matching video row."""
-    roi_str = f"{roi[0]},{roi[1]},{roi[2]},{roi[3]}"
-    target = str(Path(video_path).resolve())
+    roi_str  = f"{roi[0]},{roi[1]},{roi[2]},{roi[3]}"
+    target   = Path(video_path).resolve()
+    vid_name = target.name
+    matched  = False
 
     rows = []
-    fieldnames = None
     with open(manifest_path, newline="") as f:
-        reader = csv.DictReader(f)
+        reader     = csv.DictReader(f)
         fieldnames = list(reader.fieldnames)
         if "roi" not in fieldnames:
             fieldnames.append("roi")
         for row in reader:
-            if str(Path(row["path"]).resolve()) == target:
+            # Match by full resolved path first, fall back to filename
+            row_path = Path(row.get("path", ""))
+            if row_path.resolve() == target or row_path.name == vid_name:
                 row["roi"] = roi_str
+                matched = True
             rows.append(row)
+
+    if not matched:
+        print(f"  Warning: {vid_name} not found in manifest — ROI not saved.")
+        print(f"  Manifest searched: {Path(manifest_path).resolve()}")
+        return
 
     with open(manifest_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
+    print(f"  ROI saved → {Path(manifest_path).resolve()}")
 
 
 def parse_roi(roi_str: str) -> tuple:
@@ -314,12 +324,12 @@ def generate_flow_report(analysis: FlowAnalysis, video_path: str):
 
 def save_flow_outputs(analysis: FlowAnalysis, output_dir, video_path: str):
     stem = Path(video_path).stem
-    out  = Path(output_dir) if output_dir else Path(video_path).parent / f"{stem}_flow"
+    out  = Path(output_dir) if output_dir else Path.cwd() / f"{stem}_flow"
     out.mkdir(parents=True, exist_ok=True)
     plot_path = _save_plot(analysis, out, stem, video_path)
     json_path = _save_json(analysis, out, stem, video_path)
-    print(f"  Plot : {plot_path}")
-    print(f"  JSON : {json_path}")
+    print(f"  Plot : {plot_path.resolve()}")
+    print(f"  JSON : {json_path.resolve()}")
 
 
 def _save_plot(analysis, out_dir, stem, video_path):
